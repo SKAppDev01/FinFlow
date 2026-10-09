@@ -94,6 +94,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     private val _autoHideSystemBars = MutableStateFlow(true)
     val autoHideSystemBars: StateFlow<Boolean> = _autoHideSystemBars.asStateFlow()
 
+    private val _respectPunchHole = MutableStateFlow(true)
+    val respectPunchHole: StateFlow<Boolean> = _respectPunchHole.asStateFlow()
+
     init {
         val db = AppDatabase.getInstance(application)
         repository = FinanceRepository(db.financeDao())
@@ -512,6 +515,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
         securityManager.removeLock()
         _lockType.value = SecurityLockType.NONE
+        _biometricLockEnabled.value = false
         _isAppLocked.value = false
         return true
     }
@@ -544,16 +548,20 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         _autoHideSystemBars.value = enabled
     }
 
-    fun resetAllDataToDefault() {
+    fun toggleRespectPunchHole(enabled: Boolean) {
+        _respectPunchHole.value = enabled
+    }
+
+    fun clearAllData() {
         viewModelScope.launch {
-            repository.resetToSampleData()
-            _lastAutoProcessedMessage.value = "Sample data restored successfully."
+            repository.clearAllData()
+            _lastAutoProcessedMessage.value = "All data cleared successfully. Fresh ledger ready."
         }
     }
 
     fun clearAllTransactions() {
         viewModelScope.launch {
-            repository.clearAllData()
+            repository.clearAllTransactions()
             _lastAutoProcessedMessage.value = "All transactions cleared."
         }
     }

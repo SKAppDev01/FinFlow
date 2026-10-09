@@ -207,16 +207,59 @@ class FinanceRepository(private val dao: FinanceDao) {
     suspend fun updateAutomationRule(rule: AutomationRuleEntity) = dao.updateAutomationRule(rule)
     suspend fun deleteAutomationRule(id: Long) = dao.deleteAutomationRuleById(id)
 
-    suspend fun clearAllData() {
+    suspend fun clearAllTransactions() {
         dao.clearAllTransactions()
     }
 
-    suspend fun resetToSampleData() {
+    suspend fun clearAllData() {
         dao.clearAllTransactions()
         dao.clearAllRecurringRules()
         dao.clearAllBudgets()
         dao.clearAllAutomationRules()
         dao.clearAllAccounts()
-        com.example.data.AppDatabase.populateInitialData(dao)
+        // Provide clean base accounts with 0.00 balance so user has an active ledger ready
+        val cleanAccounts = listOf(
+            AccountEntity(
+                id = "checking",
+                name = "Primary Checking",
+                type = "CHECKING",
+                balance = 0.00,
+                institution = "Bank",
+                lastFour = "0001",
+                colorHex = "#0D9488"
+            ),
+            AccountEntity(
+                id = "savings",
+                name = "Savings Account",
+                type = "SAVINGS",
+                balance = 0.00,
+                institution = "Bank",
+                lastFour = "0002",
+                colorHex = "#10B981"
+            ),
+            AccountEntity(
+                id = "cash",
+                name = "Cash Wallet",
+                type = "CASH",
+                balance = 0.00,
+                institution = "Physical",
+                lastFour = "0000",
+                colorHex = "#F59E0B"
+            )
+        )
+        dao.insertAccounts(cleanAccounts)
+
+        // Provide clean standard category budgets with $0 spent
+        val cleanBudgets = listOf(
+            CategoryBudgetEntity(category = "Food & Dining", monthlyLimit = 500.0, colorHex = "#F59E0B"),
+            CategoryBudgetEntity(category = "Housing", monthlyLimit = 1500.0, colorHex = "#8B5CF6"),
+            CategoryBudgetEntity(category = "Transportation", monthlyLimit = 300.0, colorHex = "#3B82F6"),
+            CategoryBudgetEntity(category = "Shopping", monthlyLimit = 300.0, colorHex = "#EC4899"),
+            CategoryBudgetEntity(category = "Utilities", monthlyLimit = 200.0, colorHex = "#6366F1"),
+            CategoryBudgetEntity(category = "Entertainment", monthlyLimit = 150.0, colorHex = "#06B6D4"),
+            CategoryBudgetEntity(category = "Health & Wellness", monthlyLimit = 100.0, colorHex = "#10B981"),
+            CategoryBudgetEntity(category = "Other", monthlyLimit = 100.0, colorHex = "#64748B")
+        )
+        dao.insertBudgets(cleanBudgets)
     }
 }

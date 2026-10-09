@@ -77,6 +77,7 @@ class SecurityManager(context: Context) {
         prefs.edit()
             .putString(KEY_LOCK_TYPE, SecurityLockType.NONE.name)
             .remove(KEY_CREDENTIAL_HASH)
+            .putBoolean(KEY_BIOMETRIC_ENABLED, false)
             .apply()
     }
 

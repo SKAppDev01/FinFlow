@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -40,6 +42,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -57,6 +61,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.security.BiometricAuthManager
 import com.example.data.security.SecurityLockType
 import com.example.ui.theme.ExpenseCoral
 import com.example.ui.theme.PrimaryEmerald
@@ -66,18 +71,31 @@ fun LockScreen(
     lockType: SecurityLockType,
     biometricEnabled: Boolean,
     onAttemptUnlock: (String) -> Boolean,
-    onBiometricUnlock: () -> Unit,
+    onBiometricUnlock: (onError: (String) -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var pinDigits by remember { mutableStateOf("") }
     var passwordInput by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    LaunchedEffect(biometricEnabled) {
+        if (biometricEnabled) {
+            onBiometricUnlock { err ->
+                if (err.isNotBlank()) {
+                    errorMessage = err
+                }
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .safeDrawingPadding()
+            .displayCutoutPadding()
             .padding(24.dp)
             .testTag("app_lock_screen"),
         contentAlignment = Alignment.Center
@@ -133,26 +151,46 @@ fun LockScreen(
                 enter = fadeIn(),
                 exit = fadeOut()
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(bottom = 16.dp)
-                        .background(ExpenseCoral.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(bottom = 12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = ExpenseCoral,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = errorMessage ?: "",
-                        color = ExpenseCoral,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .background(ExpenseCoral.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = ExpenseCoral,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = errorMessage ?: "",
+                            color = ExpenseCoral,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    if (errorMessage?.contains("Settings", ignoreCase = true) == true) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tap to open Android Security Settings",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = PrimaryEmerald,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    BiometricAuthManager.openSecuritySettings(context)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
@@ -205,7 +243,16 @@ fun LockScreen(
                             errorMessage = null
                         }
                     },
-                    onBiometricClick = if (biometricEnabled) onBiometricUnlock else null
+                    onBiometricClick = if (biometricEnabled) {
+                        {
+                            errorMessage = null
+                            onBiometricUnlock { err ->
+                                if (err.isNotBlank()) {
+                                    errorMessage = err
+                                }
+                            }
+                        }
+                    } else null
                 )
             } else if (lockType == SecurityLockType.PASSWORD) {
                 // Password Interface
@@ -273,11 +320,19 @@ fun LockScreen(
                 if (biometricEnabled) {
                     Spacer(modifier = Modifier.height(14.dp))
                     OutlinedButton(
-                        onClick = onBiometricUnlock,
+                        onClick = {
+                            errorMessage = null
+                            onBiometricUnlock { err ->
+                                if (err.isNotBlank()) {
+                                    errorMessage = err
+                                }
+                            }
+                        },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp)
+                            .testTag("lock_password_biometric_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Fingerprint,

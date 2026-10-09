@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Pin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -61,10 +62,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.MainActivity
+import com.example.data.security.BiometricAuthManager
+import com.example.data.security.BiometricStatus
 import com.example.data.security.SecurityLockType
 import com.example.ui.theme.ExpenseCoral
 import com.example.ui.theme.IncomeGreen
@@ -92,13 +97,21 @@ fun SettingsScreen(
     onToggleDecimalPrecision: (Boolean) -> Unit,
     autoHideSystemBars: Boolean = true,
     onToggleAutoHideSystemBars: (Boolean) -> Unit = {},
-    onResetSampleData: () -> Unit,
+    respectPunchHole: Boolean = true,
+    onToggleRespectPunchHole: (Boolean) -> Unit = {},
+    onClearAllData: () -> Unit,
     onClearAllTransactions: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showResetConfirmDialog by remember { mutableStateOf(false) }
-    var showClearConfirmDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var showClearAllDataDialog by remember { mutableStateOf(false) }
+    var showClearTransactionsDialog by remember { mutableStateOf(false) }
     var showSecurityLockDialog by remember { mutableStateOf(false) }
+    var showBiometricNeedLockDialog by remember { mutableStateOf(false) }
+    var showBiometricEnrollDialog by remember { mutableStateOf(false) }
+    var showBiometricNoHardwareDialog by remember { mutableStateOf(false) }
+    var biometricErrorMessage by remember { mutableStateOf<String?>(null) }
+    var biometricSuccessMessage by remember { mutableStateOf<String?>(null) }
 
     val currencyList = listOf(
         "₱" to "PHP (₱)",
@@ -285,6 +298,15 @@ fun SettingsScreen(
                         checked = autoHideSystemBars,
                         onCheckedChange = onToggleAutoHideSystemBars
                     )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    SettingsToggleRow(
+                        title = "Respect Camera Punch Hole",
+                        subtitle = "Preserves safe margins for camera cutouts & punch holes so content is never obscured",
+                        checked = respectPunchHole,
+                        onCheckedChange = onToggleRespectPunchHole
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -457,8 +479,122 @@ fun SettingsScreen(
                         title = "Require Biometric / Fingerprint",
                         subtitle = "Fast fingerprint unlock alongside PIN or Password",
                         checked = biometricLockEnabled,
-                        onCheckedChange = onToggleBiometricLock
+                        onCheckedChange = { enable ->
+                            if (!enable) {
+                                onToggleBiometricLock(false)
+                            } else {
+                                if (lockType == SecurityLockType.NONE) {
+                                    showBiometricNeedLockDialog = true
+                                } else {
+                                    val status = BiometricAuthManager.checkBiometricStatus(context)
+                                    when (status) {
+                                        BiometricStatus.NOT_ENROLLED -> {
+                                            showBiometricEnrollDialog = true
+                                        }
+                                        BiometricStatus.NO_HARDWARE -> {
+                                            showBiometricNoHardwareDialog = true
+                                        }
+                                        BiometricStatus.HW_UNAVAILABLE,
+                                        BiometricStatus.UNSUPPORTED -> {
+                                            biometricErrorMessage = BiometricAuthManager.getStatusDescription(status)
+                                        }
+                                        BiometricStatus.READY -> {
+                                            val activity = context as? MainActivity
+                                            activity?.launchBiometricPrompt(
+                                                title = "Confirm Biometric Setup",
+                                                subtitle = "Scan your fingerprint or face to enable biometric unlock",
+                                                negativeButtonText = "Cancel",
+                                                onSuccess = {
+                                                    onToggleBiometricLock(true)
+                                                    biometricSuccessMessage = "Biometric unlock enabled successfully!"
+                                                },
+                                                onError = { err ->
+                                                    if (err.isNotBlank()) {
+                                                        biometricErrorMessage = err
+                                                    }
+                                                }
+                                            ) ?: run {
+                                                onToggleBiometricLock(true)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     )
+
+                    // Live Biometric Hardware Status Card
+                    val currentBiometricStatus = remember { BiometricAuthManager.checkBiometricStatus(context) }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = when (currentBiometricStatus) {
+                            BiometricStatus.READY -> PrimaryEmerald.copy(alpha = 0.10f)
+                            BiometricStatus.NOT_ENROLLED -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
+                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            when (currentBiometricStatus) {
+                                BiometricStatus.READY -> PrimaryEmerald.copy(alpha = 0.35f)
+                                BiometricStatus.NOT_ENROLLED -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)
+                                else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                            }
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .then(
+                                if (currentBiometricStatus == BiometricStatus.NOT_ENROLLED) {
+                                    Modifier.clickable { BiometricAuthManager.openSecuritySettings(context) }
+                                } else Modifier
+                            )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = when (currentBiometricStatus) {
+                                    BiometricStatus.READY -> Icons.Default.Fingerprint
+                                    BiometricStatus.NOT_ENROLLED -> Icons.Default.Warning
+                                    else -> Icons.Default.Info
+                                },
+                                contentDescription = null,
+                                tint = when (currentBiometricStatus) {
+                                    BiometricStatus.READY -> PrimaryEmerald
+                                    BiometricStatus.NOT_ENROLLED -> MaterialTheme.colorScheme.tertiary
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = when (currentBiometricStatus) {
+                                        BiometricStatus.READY -> "Sensor Status: Ready & Enrolled"
+                                        BiometricStatus.NOT_ENROLLED -> "Sensor Status: Not Enrolled in Android"
+                                        BiometricStatus.NO_HARDWARE -> "Sensor Status: No Biometric Hardware"
+                                        else -> "Sensor Status: Biometrics Unavailable"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when (currentBiometricStatus) {
+                                        BiometricStatus.READY -> PrimaryEmerald
+                                        BiometricStatus.NOT_ENROLLED -> MaterialTheme.colorScheme.tertiary
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                                if (currentBiometricStatus == BiometricStatus.NOT_ENROLLED) {
+                                    Text(
+                                        text = "Tap to open Android Settings and register fingerprint",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
@@ -510,12 +646,13 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(10.dp))
         }
 
-        // Section: Data & Backup Management
+        // Section: Data & Storage Management
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                    .padding(horizontal = 20.dp, vertical = 6.dp)
+                    .testTag("data_management_card"),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(20.dp),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
@@ -529,7 +666,7 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Reset / Restore Sample Data
+                    // Clear All Data
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -537,37 +674,38 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Reload Sample Data",
+                                text = "Clear All Data",
                                 style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                fontWeight = FontWeight.Bold,
+                                color = ExpenseCoral
                             )
                             Text(
-                                text = "Repopulate full demo accounts, budgets, and transactions",
+                                text = "Permanently wipe all transactions, budgets, recurring rules, and reset accounts",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
                         Button(
-                            onClick = { showResetConfirmDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                            onClick = { showClearAllDataDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = ExpenseCoral),
                             shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.testTag("reload_sample_data_button")
+                            modifier = Modifier.testTag("clear_all_data_button")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Refresh,
+                                imageVector = Icons.Default.DeleteForever,
                                 contentDescription = null,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(16.dp),
+                                tint = Color.White
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Reload", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Clear All Data", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Clear All Transactions
+                    // Clear Transactions Only
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -575,31 +713,25 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Clear All Transactions",
+                                text = "Clear Transactions Only",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = ExpenseCoral
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Wipe transaction logs to start fresh with zero records",
+                                text = "Delete transaction records while keeping accounts and budgets intact",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
                         OutlinedButton(
-                            onClick = { showClearConfirmDialog = true },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ExpenseCoral),
+                            onClick = { showClearTransactionsDialog = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.testTag("clear_transactions_button")
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.DeleteForever,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Clear", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Clear History", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -658,48 +790,60 @@ fun SettingsScreen(
     }
 
     // Confirmation Dialogs
-    if (showResetConfirmDialog) {
+    if (showClearAllDataDialog) {
         AlertDialog(
-            onDismissRequest = { showResetConfirmDialog = false },
-            title = { Text("Reload Sample Data?") },
-            text = { Text("This will reset all accounts, categories, budgets, and transactions back to the default demo state.") },
+            onDismissRequest = { showClearAllDataDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = ExpenseCoral,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = { Text("Clear All App Data?") },
+            text = {
+                Text(
+                    "This action cannot be undone. All your recorded transactions, recurring rules, budgets, and automation patterns will be wiped completely to a clean slate."
+                )
+            },
             confirmButton = {
                 Button(
                     onClick = {
-                        onResetSampleData()
-                        showResetConfirmDialog = false
+                        onClearAllData()
+                        showClearAllDataDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald)
+                    colors = ButtonDefaults.buttonColors(containerColor = ExpenseCoral)
                 ) {
-                    Text("Confirm Reload")
+                    Text("Clear All Data", color = Color.White, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showResetConfirmDialog = false }) {
+                TextButton(onClick = { showClearAllDataDialog = false }) {
                     Text("Cancel")
                 }
             }
         )
     }
 
-    if (showClearConfirmDialog) {
+    if (showClearTransactionsDialog) {
         AlertDialog(
-            onDismissRequest = { showClearConfirmDialog = false },
+            onDismissRequest = { showClearTransactionsDialog = false },
             title = { Text("Clear All Transactions?") },
-            text = { Text("This action cannot be undone. All recorded transactions will be deleted.") },
+            text = { Text("This action cannot be undone. All recorded transactions will be deleted, while your accounts and budgets will remain.") },
             confirmButton = {
                 Button(
                     onClick = {
                         onClearAllTransactions()
-                        showClearConfirmDialog = false
+                        showClearTransactionsDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ExpenseCoral)
                 ) {
-                    Text("Clear Everything")
+                    Text("Clear Transactions", color = Color.White)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showClearConfirmDialog = false }) {
+                TextButton(onClick = { showClearTransactionsDialog = false }) {
                     Text("Cancel")
                 }
             }
@@ -713,6 +857,107 @@ fun SettingsScreen(
             onSavePin = onSetPin,
             onSavePassword = onSetPassword,
             onRemoveLock = onRemoveLock
+        )
+    }
+
+    if (showBiometricNeedLockDialog) {
+        AlertDialog(
+            onDismissRequest = { showBiometricNeedLockDialog = false },
+            icon = { Icon(Icons.Default.Lock, contentDescription = null, tint = PrimaryEmerald) },
+            title = { Text("PIN or Password Required") },
+            text = { Text("To enable biometric unlock, please set up a 4-Digit PIN or Master Password first. This ensures you always have a secure recovery fallback if biometrics is unavailable or fails.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showBiometricNeedLockDialog = false
+                        showSecurityLockDialog = true
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald)
+                ) {
+                    Text("Set Lock Now")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBiometricNeedLockDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showBiometricEnrollDialog) {
+        AlertDialog(
+            onDismissRequest = { showBiometricEnrollDialog = false },
+            icon = { Icon(Icons.Default.Fingerprint, contentDescription = null, tint = PrimaryEmerald) },
+            title = { Text("No Biometrics Registered") },
+            text = { Text("No fingerprints or face unlock credentials are registered in your device's Android Settings. Please register a fingerprint in your device's Security Settings first to use biometric unlock.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showBiometricEnrollDialog = false
+                        BiometricAuthManager.openSecuritySettings(context)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald)
+                ) {
+                    Text("Open Android Settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBiometricEnrollDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showBiometricNoHardwareDialog) {
+        AlertDialog(
+            onDismissRequest = { showBiometricNoHardwareDialog = false },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = ExpenseCoral) },
+            title = { Text("Biometric Hardware Not Found") },
+            text = { Text("This device does not have biometric hardware (fingerprint scanner or face unlock). You can protect your finances using a 4-Digit PIN or Master Password instead.") },
+            confirmButton = {
+                Button(
+                    onClick = { showBiometricNoHardwareDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald)
+                ) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    if (biometricErrorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { biometricErrorMessage = null },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = ExpenseCoral) },
+            title = { Text("Biometric Authentication") },
+            text = { Text(biometricErrorMessage ?: "") },
+            confirmButton = {
+                Button(
+                    onClick = { biometricErrorMessage = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald)
+                ) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    if (biometricSuccessMessage != null) {
+        AlertDialog(
+            onDismissRequest = { biometricSuccessMessage = null },
+            icon = { Icon(Icons.Default.Check, contentDescription = null, tint = PrimaryEmerald) },
+            title = { Text("Biometrics Active") },
+            text = { Text(biometricSuccessMessage ?: "") },
+            confirmButton = {
+                Button(
+                    onClick = { biometricSuccessMessage = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald)
+                ) {
+                    Text("Great")
+                }
+            }
         )
     }
 }

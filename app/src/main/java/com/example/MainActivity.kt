@@ -1,18 +1,27 @@
 package com.example
 
+import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -77,13 +87,21 @@ enum class AppTab(val title: String, val icon: ImageVector, val tag: String) {
     SETTINGS("Settings", Icons.Default.Settings, "tab_settings")
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     var autoHideBarsEnabled: Boolean = true
         private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                } else {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+        }
         hideSystemBars()
         setContent {
             FinFlowRoot()
@@ -124,12 +142,30 @@ class MainActivity : ComponentActivity() {
         val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         windowInsetsController.show(WindowInsetsCompat.Type.systemBars())
     }
+
+    fun launchBiometricPrompt(
+        title: String = "FinFlow Protected",
+        subtitle: String = "Verify your biometric identity to unlock",
+        negativeButtonText: String = "Use PIN / Password",
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        com.example.data.security.BiometricAuthManager.promptBiometricAuthentication(
+            activity = this,
+            title = title,
+            subtitle = subtitle,
+            negativeButtonText = negativeButtonText,
+            onSuccess = onSuccess,
+            onError = onError
+        )
+    }
 }
 
 @Composable
 fun FinFlowRoot(viewModel: FinanceViewModel = viewModel()) {
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val autoHideBars by viewModel.autoHideSystemBars.collectAsStateWithLifecycle()
+    val respectPunchHole by viewModel.respectPunchHole.collectAsStateWithLifecycle()
     val isDark = when (themeMode) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
@@ -147,7 +183,8 @@ fun FinFlowRoot(viewModel: FinanceViewModel = viewModel()) {
         FinFlowMainApp(
             viewModel = viewModel,
             themeMode = themeMode,
-            autoHideBars = autoHideBars
+            autoHideBars = autoHideBars,
+            respectPunchHole = respectPunchHole
         )
     }
 }
@@ -156,7 +193,8 @@ fun FinFlowRoot(viewModel: FinanceViewModel = viewModel()) {
 fun FinFlowMainApp(
     viewModel: FinanceViewModel = viewModel(),
     themeMode: ThemeMode = ThemeMode.SYSTEM,
-    autoHideBars: Boolean = true
+    autoHideBars: Boolean = true,
+    respectPunchHole: Boolean = true
 ) {
     var currentTab by remember { mutableStateOf(AppTab.DASHBOARD) }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -207,6 +245,9 @@ fun FinFlowMainApp(
         currentTab = AppTab.DASHBOARD
     }
 
+    val context = LocalContext.current
+    val activity = context as? MainActivity
+
     if (isAppLocked && lockType != SecurityLockType.NONE) {
         LockScreen(
             lockType = lockType,
@@ -214,13 +255,28 @@ fun FinFlowMainApp(
             onAttemptUnlock = { credential ->
                 viewModel.verifyAndUnlock(credential)
             },
-            onBiometricUnlock = {
-                viewModel.unlockWithBiometrics()
+            onBiometricUnlock = { onError ->
+                activity?.launchBiometricPrompt(
+                    title = "FinFlow Protected",
+                    subtitle = when (lockType) {
+                        SecurityLockType.PIN -> "Touch sensor or use 4-digit PIN"
+                        SecurityLockType.PASSWORD -> "Touch sensor or use Master Password"
+                        else -> "Verify biometric identity"
+                    },
+                    negativeButtonText = if (lockType == SecurityLockType.PIN) "Use PIN" else "Use Password",
+                    onSuccess = {
+                        viewModel.unlockWithBiometrics()
+                    },
+                    onError = { err ->
+                        onError(err)
+                    }
+                ) ?: onError("Biometric prompt unavailable")
             }
         )
     } else {
         Scaffold(
         modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = if (respectPunchHole) WindowInsets.safeDrawing else WindowInsets.systemBars,
         bottomBar = {
             NavigationBar(
                 modifier = Modifier
@@ -278,10 +334,48 @@ fun FinFlowMainApp(
             }
         }
     ) { innerPadding ->
+        val layoutDirection = LocalLayoutDirection.current
+        val cutoutInsets = WindowInsets.displayCutout.asPaddingValues()
+        val safeDrawingInsets = WindowInsets.safeDrawing.asPaddingValues()
+
+        val topPadding = if (respectPunchHole) {
+            val measuredTop = maxOf(
+                innerPadding.calculateTopPadding(),
+                cutoutInsets.calculateTopPadding(),
+                safeDrawingInsets.calculateTopPadding()
+            )
+            if (autoHideBars) {
+                maxOf(measuredTop, 32.dp)
+            } else {
+                measuredTop
+            }
+        } else {
+            innerPadding.calculateTopPadding()
+        }
+
+        val leftPadding = if (respectPunchHole) {
+            maxOf(innerPadding.calculateLeftPadding(layoutDirection), cutoutInsets.calculateLeftPadding(layoutDirection))
+        } else {
+            innerPadding.calculateLeftPadding(layoutDirection)
+        }
+
+        val rightPadding = if (respectPunchHole) {
+            maxOf(innerPadding.calculateRightPadding(layoutDirection), cutoutInsets.calculateRightPadding(layoutDirection))
+        } else {
+            innerPadding.calculateRightPadding(layoutDirection)
+        }
+
+        val bottomPadding = innerPadding.calculateBottomPadding()
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(
+                    start = leftPadding,
+                    top = topPadding,
+                    end = rightPadding,
+                    bottom = bottomPadding
+                )
         ) {
             Crossfade(targetState = currentTab, label = "tab_crossfade") { tab ->
                 when (tab) {
@@ -363,7 +457,9 @@ fun FinFlowMainApp(
                         onToggleDecimalPrecision = { viewModel.toggleDecimalPrecision(it) },
                         autoHideSystemBars = autoHideBars,
                         onToggleAutoHideSystemBars = { viewModel.toggleAutoHideSystemBars(it) },
-                        onResetSampleData = { viewModel.resetAllDataToDefault() },
+                        respectPunchHole = respectPunchHole,
+                        onToggleRespectPunchHole = { viewModel.toggleRespectPunchHole(it) },
+                        onClearAllData = { viewModel.clearAllData() },
                         onClearAllTransactions = { viewModel.clearAllTransactions() }
                     )
                 }
@@ -371,8 +467,6 @@ fun FinFlowMainApp(
         }
     }
     }
-
-    val context = LocalContext.current
 
     // Add Transaction Dialog
     if (showAddDialog) {

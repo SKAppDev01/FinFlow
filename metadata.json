@@ -1,0 +1,6 @@
+{
+  "name": "FinFlow",
+  "description": "Personal finance manager with automated expense tracking, smart rules, recurring bills, and interactive data visualization charts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

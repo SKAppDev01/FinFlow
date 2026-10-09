@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Rounded financial card base -->
+    <path
+        android:fillColor="#10FFFFFF"
+        android:pathData="M26,30 h56 a8,8 0 0 1 8,8 v36 a8,8 0 0 1 -8,8 h-56 a8,8 0 0 1 -8,-8 v-36 a8,8 0 0 1 8,-8 z" />
+    
+    <!-- Ascending Financial Growth Bars -->
+    <!-- Bar 1 -->
+    <path
+        android:fillColor="#80FFFFFF"
+        android:pathData="M33,68 h8 a2,2 0 0 0 2,-2 v-14 a2,2 0 0 0 -2,-2 h-8 a2,2 0 0 0 -2,2 v14 a2,2 0 0 0 2,2 z" />
+    <!-- Bar 2 -->
+    <path
+        android:fillColor="#B3FFFFFF"
+        android:pathData="M46,68 h8 a2,2 0 0 0 2,-2 v-22 a2,2 0 0 0 -2,-2 h-8 a2,2 0 0 0 -2,2 v22 a2,2 0 0 0 2,2 z" />
+    <!-- Bar 3 -->
+    <path
+        android:fillColor="#E6FFFFFF"
+        android:pathData="M59,68 h8 a2,2 0 0 0 2,-2 v-30 a2,2 0 0 0 -2,-2 h-8 a2,2 0 0 0 -2,2 v30 a2,2 0 0 0 2,2 z" />
+
+    <!-- Bar 4 / Accent Bar -->
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M72,68 h8 a2,2 0 0 0 2,-2 v-38 a2,2 0 0 0 -2,-2 h-8 a2,2 0 0 0 -2,2 v38 a2,2 0 0 0 2,2 z" />
+
+    <!-- Ascending Trend Line with Arrow Head -->
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M32,54 L49,44 L62,39 L78,25 L78,33 L81,33 L81,21 L69,21 L69,24 L76,24 L61,37 L48,42 L31,51 Z" />
+
+    <!-- Center Currency Dot / Node -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M76,23 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+</vector>
